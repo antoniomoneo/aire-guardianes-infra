@@ -96,4 +96,7 @@ PYIN
 
       - name: Show Service URL
         run: |
-          gcloud run services describe ${SERVICE} --region=${REGION} --project=${PROJECT_ID} --format='value(status.url)'
+          gcloud run services describe ${SERVICE} \
+            --region=${REGION} \
+            --project=${PROJECT_ID} \
+            --format='value(status.url)'
