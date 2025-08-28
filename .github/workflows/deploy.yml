@@ -33,16 +33,30 @@ jobs:
           token: ${{ secrets.GH_PAT }}
           path: app
 
-      # 🔐 Decodifica la clave desde el secreto base64 y activa SA
       - name: Auth to GCP (via key file)
         shell: bash
         env:
           KEY_B64: ${{ secrets.GCP_SA_KEY_B64 }}
         run: |
           if [ -z "$KEY_B64" ]; then
-            echo "ERROR: GCP_SA_KEY_B64 está vacío"; exit 1
+            echo "ERROR: GCP_SA_KEY_B64 vacío"; exit 1
           fi
-          echo "$KEY_B64" | base64 -d > "$RUNNER_TEMP/sa.json"
+          CLEAN=$(printf "%s" "$KEY_B64" | tr -d '\r\n ')
+
+          python3 - <<'PYIN'
+import os,base64,sys
+b=os.environ.get("CLEAN","")
+if not b:
+  print("Secret base64 vacío"); sys.exit(1)
+try:
+  raw=base64.b64decode(b, validate=True)
+except Exception as e:
+  print("Base64 decode error:", e); sys.exit(1)
+out=os.path.join(os.environ["RUNNER_TEMP"], "sa.json")
+open(out,"wb").write(raw)
+print("SA key written to:", out)
+PYIN
+
           gcloud auth activate-service-account --key-file="$RUNNER_TEMP/sa.json"
           gcloud config set project "${PROJECT_ID}"
           gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
