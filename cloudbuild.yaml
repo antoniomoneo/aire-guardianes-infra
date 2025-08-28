@@ -4,7 +4,7 @@ steps:
       [
         "build",
         "-f", "infra/Dockerfile",
-        "-t", "us-west1-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$VERSION",
+        "-t", "us-west1-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$_VERSION",
         "."
       ]
 
@@ -12,7 +12,7 @@ steps:
     args:
       [
         "push",
-        "us-west1-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$VERSION"
+        "us-west1-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$_VERSION"
       ]
 
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
@@ -21,7 +21,7 @@ steps:
       [
         "run", "deploy", "${_SERVICE}",
         "--region", "${_REGION}",
-        "--image", "us-west1-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$VERSION",
+        "--image", "us-west1-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$_VERSION",
         "--platform", "managed",
         "--allow-unauthenticated",
         "--service-account", "${_RUNTIME_SA}",
