@@ -1,16 +1,16 @@
 name: Deploy aire-guardianes → Cloud Run (infra repo)
 
 on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: "Versión (p.ej. v2025.08.28-1). Si no la pones, se autogenera."
-        required: false
-        type: string
   push:
     branches: [ "main" ]
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Versión (p.ej. v2025.08.28-1). Si se omite, se usa el SHA."
+        required: false
+        type: string
 
 env:
   PROJECT_ID: aire-470107
@@ -43,14 +43,23 @@ jobs:
           git fetch origin main --depth=1 || true
           git checkout -q main || true
 
-      - name: Debug env
+      # === PREBUILD DIAGNÓSTICO EN EL RUNNER ===
+      - name: Prebuild en runner (log detallado)
+        working-directory: app
         run: |
-          docker --version
-          echo "GITHUB_REF=${GITHUB_REF}"
-          echo "GITHUB_SHA=${GITHUB_SHA}"
-          ls -la
-          ls -la app || true
-          test -f infra/Dockerfile && echo "Dockerfile OK" || (echo "FALTA infra/Dockerfile" && exit 1)
+          set -euxo pipefail
+          node -v
+          npm -v
+          npm ci || npm install
+          # nivel de log alto para ver errores reales
+          npm config set loglevel verbose
+          npm run build || {
+            echo "::group::package.json"; cat package.json; echo "::endgroup::";
+            echo "::group::vite.config.ts"; cat vite.config.ts || true; echo "::endgroup::";
+            echo "::group::Listado app"; ls -la; echo "::endgroup::";
+            echo "::group::tsconfig*"; ls -la tsconfig* || true; for f in tsconfig*.json; do [ -f "$f" ] && { echo "== $f =="; cat "$f"; }; done; echo "::endgroup::";
+            exit 1;
+          }
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -65,54 +74,42 @@ jobs:
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev -q
 
-      - name: Compute tag (si no empieza por v, lo forzamos)
+      - name: Compute tags
         id: meta
         shell: bash
         run: |
-          set -euo pipefail
-          RAW="${{ github.event.inputs.version }}"
-          if [ -z "${RAW}" ]; then
-            if [[ "${GITHUB_REF:-}" == refs/tags/* ]]; then
-              RAW="${GITHUB_REF#refs/tags/}"
-            else
-              RAW="v$(date +%Y.%m.%d-%H%M)"
-            fi
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            TAG="${{ github.event.inputs.version }}"
+          elif [[ "${GITHUB_REF:-}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          else
+            TAG="${GITHUB_SHA}"
           fi
-          case "$RAW" in
-            v*) TAG="$RAW" ;;
-            *)  TAG="v${RAW}" ;;
-          esac
           echo "TAG=$TAG" >> "$GITHUB_OUTPUT"
-          echo "=> TAG calculado: $TAG"
 
       - name: Build image (contexto raíz, Dockerfile en infra/, código en app/)
         env:
-          IMAGE_BASE: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}
+          DOCKER_BUILDKIT: "0"     # logs más claros
         run: |
           set -euxo pipefail
-          docker build -f infra/Dockerfile -t "${IMAGE_BASE}:${GITHUB_SHA}" .
+          IMAGE_BASE="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}"
+          docker build \
+            --no-cache \
+            --progress=plain \
+            -f infra/Dockerfile \
+            -t "${IMAGE_BASE}:${{ steps.meta.outputs.TAG }}" \
+            .
 
-      - name: Push image (SHA)
-        env:
-          IMAGE_BASE: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}
+      - name: Push image
         run: |
           set -euxo pipefail
-          docker push "${IMAGE_BASE}:${GITHUB_SHA}"
-
-      - name: Tag & Push image (versión con v-prefijo)
-        env:
-          IMAGE_BASE: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}
-          TAG:        ${{ steps.meta.outputs.TAG }}
-        run: |
-          set -euxo pipefail
-          docker tag  "${IMAGE_BASE}:${GITHUB_SHA}" "${IMAGE_BASE}:${TAG}"
-          docker push "${IMAGE_BASE}:${TAG}"
+          IMAGE_BASE="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}"
+          docker push "${IMAGE_BASE}:${{ steps.meta.outputs.TAG }}"
 
       - name: Deploy to Cloud Run
-        env:
-          IMAGE:      ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.TAG }}
         run: |
           set -euxo pipefail
+          IMAGE="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.TAG }}"
           gcloud run deploy "${{ env.SERVICE }}" \
             --image "${IMAGE}" \
             --region "${{ env.REGION }}" \
