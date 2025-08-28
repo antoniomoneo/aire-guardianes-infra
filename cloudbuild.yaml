@@ -1,0 +1,31 @@
+substitutions:
+  _REGION: "us-west1"
+  _SERVICE: "aire-guardianes"
+  _REPO: "aire-guardianes-app"
+  _RUNTIME_SA: "aire-deployer@aire-470107.iam.gserviceaccount.com"
+
+steps:
+  - name: "gcr.io/cloud-builders/docker"
+    args: [
+      "build",
+      "-f", "infra/Dockerfile",
+      "-t", "us-west1-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$COMMIT_SHA",
+      "."
+    ]
+
+  - name: "gcr.io/cloud-builders/docker"
+    args: [
+      "push",
+      "us-west1-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$COMMIT_SHA"
+    ]
+
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "gcloud"
+    args: [
+      "run", "deploy", "${_SERVICE}",
+      "--region", "${_REGION}",
+      "--image", "us-west1-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$COMMIT_SHA",
+      "--platform", "managed",
+      "--allow-unauthenticated",
+      "--service-account", "${_RUNTIME_SA}"
+    ]
