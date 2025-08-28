@@ -1,21 +1,10 @@
 steps:
-  - name: "gcr.io/cloud-builders/git"
-    entrypoint: "bash"
-    args:
-      - "-c"
-      - |
-        git clone "https://github.com/antoniomoneo/AIRE---Guardianes-del-Aire.git" app
-        cd app
-        npm install
-        npm run build
-        cp -r build ../build
-
   - name: "gcr.io/cloud-builders/docker"
     args:
       [
         "build",
-        "-t", "us-west1-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:${_VERSION}",
         "-f", "infra/Dockerfile",
+        "-t", "us-west1-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:${_VERSION}",
         "."
       ]
 
