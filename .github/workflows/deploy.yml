@@ -42,7 +42,6 @@ jobs:
             echo "ERROR: GCP_SA_KEY_B64 vacío"; exit 1
           fi
           CLEAN=$(printf "%s" "$KEY_B64" | tr -d '\r\n ')
-
           python3 - <<'PYIN'
 import os,base64,sys
 b=os.environ.get("CLEAN","")
@@ -56,7 +55,6 @@ out=os.path.join(os.environ["RUNNER_TEMP"], "sa.json")
 open(out,"wb").write(raw)
 print("SA key written to:", out)
 PYIN
-
           gcloud auth activate-service-account --key-file="$RUNNER_TEMP/sa.json"
           gcloud config set project "${PROJECT_ID}"
           gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
