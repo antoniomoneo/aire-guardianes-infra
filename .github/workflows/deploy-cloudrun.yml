@@ -43,24 +43,6 @@ jobs:
           git fetch origin main --depth=1 || true
           git checkout -q main || true
 
-      # === PREBUILD DIAGNÓSTICO EN EL RUNNER ===
-      - name: Prebuild en runner (log detallado)
-        working-directory: app
-        run: |
-          set -euxo pipefail
-          node -v
-          npm -v
-          npm ci || npm install
-          # nivel de log alto para ver errores reales
-          npm config set loglevel verbose
-          npm run build || {
-            echo "::group::package.json"; cat package.json; echo "::endgroup::";
-            echo "::group::vite.config.ts"; cat vite.config.ts || true; echo "::endgroup::";
-            echo "::group::Listado app"; ls -la; echo "::endgroup::";
-            echo "::group::tsconfig*"; ls -la tsconfig* || true; for f in tsconfig*.json; do [ -f "$f" ] && { echo "== $f =="; cat "$f"; }; done; echo "::endgroup::";
-            exit 1;
-          }
-
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
@@ -87,33 +69,47 @@ jobs:
           fi
           echo "TAG=$TAG" >> "$GITHUB_OUTPUT"
 
-      - name: Build image (contexto raíz, Dockerfile en infra/, código en app/)
+      - name: Build and Push image (doble tag: SHA + version)
         env:
-          DOCKER_BUILDKIT: "0"     # logs más claros
+          PROJECT_ID: ${{ env.PROJECT_ID }}
+          REGION:     ${{ env.REGION }}
+          REPO:       ${{ env.AR_REPO }}
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          TAG:        ${{ steps.meta.outputs.TAG }}
         run: |
           set -euxo pipefail
-          IMAGE_BASE="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}"
-          docker build \
-            --no-cache \
-            --progress=plain \
-            -f infra/Dockerfile \
-            -t "${IMAGE_BASE}:${{ steps.meta.outputs.TAG }}" \
-            .
+          export DOCKER_BUILDKIT=1
+          IMAGE_BASE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${IMAGE_NAME}"
+          SHA_TAG="${GITHUB_SHA}"
+          TAG_NAME="${TAG}"
 
-      - name: Push image
-        run: |
-          set -euxo pipefail
-          IMAGE_BASE="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}"
-          docker push "${IMAGE_BASE}:${{ steps.meta.outputs.TAG }}"
+          # Build (sin --progress y sin --no-cache)
+          docker build -f infra/Dockerfile -t "${IMAGE_BASE}:${SHA_TAG}" .
+
+          # Push por SHA
+          docker push "${IMAGE_BASE}:${SHA_TAG}"
+
+          # Tag legible (versión) y push
+          docker tag "${IMAGE_BASE}:${SHA_TAG}" "${IMAGE_BASE}:${TAG_NAME}"
+          docker push "${IMAGE_BASE}:${TAG_NAME}"
 
       - name: Deploy to Cloud Run
+        env:
+          PROJECT_ID: ${{ env.PROJECT_ID }}
+          REGION:     ${{ env.REGION }}
+          SERVICE:    ${{ env.SERVICE }}
+          RUNTIME_SA: ${{ env.RUNTIME_SA }}
+          REPO:       ${{ env.AR_REPO }}
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          TAG:        ${{ steps.meta.outputs.TAG }}
         run: |
           set -euxo pipefail
-          IMAGE="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.TAG }}"
-          gcloud run deploy "${{ env.SERVICE }}" \
+          IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${IMAGE_NAME}:${TAG}"
+
+          gcloud run deploy "${SERVICE}" \
             --image "${IMAGE}" \
-            --region "${{ env.REGION }}" \
-            --service-account "${{ env.RUNTIME_SA }}" \
+            --region "${REGION}" \
+            --service-account "${RUNTIME_SA}" \
             --allow-unauthenticated \
             --ingress all \
             --set-secrets "GEMINI_API_KEY=GEMINI_API_KEY:latest"
