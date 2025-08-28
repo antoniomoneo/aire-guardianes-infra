@@ -1,12 +1,14 @@
-name: Deploy aire-guardianes → Cloud Run
+name: Deploy aire-guardianes → Cloud Run (infra repo)
 
 on:
   push:
     branches: [ "main" ]
+    tags:
+      - "v*"
   workflow_dispatch:
     inputs:
       version:
-        description: "Versión opcional (p.ej. v2025.08.28-1)"
+        description: "Versión (p.ej. v2025.08.28-1). Si se omite, se usa el SHA."
         required: false
         type: string
 
@@ -20,83 +22,99 @@ env:
   APP_REPO: antoniomoneo/AIRE---Guardianes-del-Aire
 
 jobs:
-  deploy:
+  build-deploy:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
     steps:
-      - name: Checkout infra
+      - name: Checkout infra repo (this repo)
         uses: actions/checkout@v4
 
-      - name: Checkout app (AI Studio repo)
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ env.APP_REPO }}
-          token: ${{ secrets.GH_PAT }}
-          path: app
-
-      - name: Auth to GCP (via key file)
-        shell: bash
+      - name: Clone app repo via PAT
         env:
-          KEY_B64: ${{ secrets.GCP_SA_KEY_B64 }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          APP_REPO: ${{ env.APP_REPO }}
         run: |
-          if [ -z "$KEY_B64" ]; then
-            echo "ERROR: GCP_SA_KEY_B64 vacío"; exit 1
-          fi
-          CLEAN=$(printf "%s" "$KEY_B64" | tr -d '\r\n ')
-          python3 - <<'PYIN'
-import os,base64,sys
-b=os.environ.get("CLEAN","")
-if not b:
-  print("Secret base64 vacío"); sys.exit(1)
-try:
-  raw=base64.b64decode(b, validate=True)
-except Exception as e:
-  print("Base64 decode error:", e); sys.exit(1)
-out=os.path.join(os.environ["RUNNER_TEMP"], "sa.json")
-open(out,"wb").write(raw)
-print("SA key written to:", out)
-PYIN
-          gcloud auth activate-service-account --key-file="$RUNNER_TEMP/sa.json"
-          gcloud config set project "${PROJECT_ID}"
-          gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+          set -euxo pipefail
+          rm -rf app
+          git clone --depth=1 "https://${GH_PAT}@github.com/${APP_REPO}.git" app
+          cd app
+          git fetch origin main --depth=1 || true
+          git checkout -q main || true
 
-      - name: Compute image tag
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev -q
+
+      - name: Compute tags
         id: meta
         shell: bash
         run: |
           if [ -n "${{ github.event.inputs.version }}" ]; then
             TAG="${{ github.event.inputs.version }}"
+          elif [[ "${GITHUB_REF:-}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
           else
             TAG="${GITHUB_SHA}"
           fi
-          echo "TAG=$TAG" >> $GITHUB_OUTPUT
+          echo "TAG=$TAG" >> "$GITHUB_OUTPUT"
 
-      - name: Build image (Dockerfile de infra sobre código de la app)
-        working-directory: app
+      - name: Build and Push image (doble tag: SHA + version)
+        env:
+          PROJECT_ID: ${{ env.PROJECT_ID }}
+          REGION:     ${{ env.REGION }}
+          REPO:       ${{ env.AR_REPO }}
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          TAG:        ${{ steps.meta.outputs.TAG }}
         run: |
-          docker build \
-            -f ../infra/Dockerfile \
-            -t ${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/${IMAGE_NAME}:${{ steps.meta.outputs.TAG }} \
-            .
+          set -euxo pipefail
+          IMAGE_BASE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${IMAGE_NAME}"
+          SHA_TAG="${GITHUB_SHA}"
+          TAG_NAME="${TAG}"
 
-      - name: Push image
-        run: |
-          docker push ${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/${IMAGE_NAME}:${{ steps.meta.outputs.TAG }}
+          # Build con contexto 'app' y Dockerfile en infra/
+          docker build -f infra/Dockerfile -t "${IMAGE_BASE}:${SHA_TAG}" .
+
+          # Push por SHA
+          docker push "${IMAGE_BASE}:${SHA_TAG}"
+
+          # Tag legible (version)
+          docker tag "${IMAGE_BASE}:${SHA_TAG}" "${IMAGE_BASE}:${TAG_NAME}"
+          docker push "${IMAGE_BASE}:${TAG_NAME}"
 
       - name: Deploy to Cloud Run
+        env:
+          PROJECT_ID: ${{ env.PROJECT_ID }}
+          REGION:     ${{ env.REGION }}
+          SERVICE:    ${{ env.SERVICE }}
+          RUNTIME_SA: ${{ env.RUNTIME_SA }}
+          REPO:       ${{ env.AR_REPO }}
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          TAG:        ${{ steps.meta.outputs.TAG }}
         run: |
-          gcloud run deploy ${SERVICE} \
-            --project=${PROJECT_ID} \
-            --region=${REGION} \
-            --image=${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/${IMAGE_NAME}:${{ steps.meta.outputs.TAG }} \
-            --platform=managed \
+          set -euxo pipefail
+          IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${IMAGE_NAME}:${TAG}"
+
+          gcloud run deploy "${SERVICE}" \
+            --image "${IMAGE}" \
+            --region "${REGION}" \
+            --service-account "${RUNTIME_SA}" \
             --allow-unauthenticated \
-            --ingress=all \
-            --service-account=${RUNTIME_SA} \
-            --set-secrets=GEMINI_API_KEY=GEMINI_API_KEY:latest
+            --ingress all \
+            --set-secrets "GEMINI_API_KEY=GEMINI_API_KEY:latest"
 
       - name: Show Service URL
         run: |
-          gcloud run services describe ${SERVICE} \
-            --region=${REGION} \
-            --project=${PROJECT_ID} \
+          gcloud run services describe ${{ env.SERVICE }} \
+            --region ${{ env.REGION }} \
             --format='value(status.url)'
