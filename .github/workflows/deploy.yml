@@ -1,0 +1,86 @@
+name: Deploy aire-guardianes → Cloud Run
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Versión opcional (p.ej. v2025.08.28-1)"
+        required: false
+        type: string
+
+env:
+  PROJECT_ID: aire-470107
+  REGION: us-west1
+  SERVICE: aire-guardianes
+  AR_REPO: aire-guardianes-app
+  IMAGE_NAME: aire-guardianes
+  RUNTIME_SA: aire-deployer@aire-470107.iam.gserviceaccount.com
+  APP_REPO: antoniomoneo/AIRE---Guardianes-del-Aire
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout infra
+        uses: actions/checkout@v4
+
+      - name: Checkout app (AI Studio repo)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.APP_REPO }}
+          path: app
+
+      - name: Auth to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Setup gcloud + Docker auth
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+      - run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Compute image tag
+        id: meta
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            TAG="${{ github.event.inputs.version }}"
+          else
+            TAG="${GITHUB_SHA}"
+          fi
+          echo "TAG=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Build image (usa Dockerfile de infra sobre el código de app)
+        working-directory: app
+        run: |
+          docker build \
+            -f ../infra/Dockerfile \
+            -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.TAG }} \
+            .
+
+      - name: Push image
+        run: |
+          docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.TAG }}
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy ${{ env.SERVICE }} \
+            --project=${{ env.PROJECT_ID }} \
+            --region=${{ env.REGION }} \
+            --image=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.TAG }} \
+            --platform=managed \
+            --allow-unauthenticated \
+            --ingress=all \
+            --service-account=${{ env.RUNTIME_SA }} \
+            --set-secrets=GEMINI_API_KEY=GEMINI_API_KEY:latest
+
+      - name: Show Service URL
+        run: |
+          gcloud run services describe ${{ env.SERVICE }} \
+            --region=${{ env.REGION }} \
+            --project=${{ env.PROJECT_ID }} \
+            --format='value(status.url)'
