@@ -69,7 +69,7 @@ jobs:
           fi
           echo "TAG=$TAG" >> "$GITHUB_OUTPUT"
       
-      - name: "Build and Push image (doble tag: SHA + version)"
+      - name: 'Build and Push image (doble tag SHA + version)'
         env:
           PROJECT_ID: ${{ env.PROJECT_ID }}
           REGION:     ${{ env.REGION }}
