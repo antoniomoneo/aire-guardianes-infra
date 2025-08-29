@@ -3,10 +3,34 @@ name: Deploy app by ref (manual)
 on:
   workflow_dispatch:
     inputs:
+      app_repo:
+        description: "Repositorio de la app (owner/repo)"
+        required: true
+        default: "antoniomoneo/Social-Media-Planner-aml"
       app_ref:
         description: "Ref de la app a desplegar (tag/rama/SHA)"
         required: true
         default: "main"
+      project_id:
+        description: "GCP Project ID"
+        required: true
+        default: "aire-469506"
+      region:
+        description: "Región de Cloud Run"
+        required: true
+        default: "us-west1"
+      service_name:
+        description: "Servicio de Cloud Run"
+        required: true
+        default: "aire-guardianes"
+      artifact_repo:
+        description: "Artifact Registry repo (Docker)"
+        required: true
+        default: "apps"
+      image_name:
+        description: "Nombre de la imagen"
+        required: true
+        default: "aire-guardianes-app"
 
 jobs:
   deploy:
@@ -14,6 +38,16 @@ jobs:
     permissions:
       contents: read
       id-token: write
+
+    env:
+      APP_REPO: ${{ inputs.app_repo }}
+      APP_REF: ${{ inputs.app_ref }}
+      PROJECT_ID: ${{ inputs.project_id }}
+      REGION: ${{ inputs.region }}
+      SERVICE_NAME: ${{ inputs.service_name }}
+      ARTIFACT_REPO: ${{ inputs.artifact_repo }}
+      IMAGE_NAME: ${{ inputs.image_name }}
+      AR_HOST: ${{ inputs.region }}-docker.pkg.dev
 
     steps:
       - name: Checkout infra repo
@@ -27,10 +61,10 @@ jobs:
       - name: Setup gcloud
         uses: google-github-actions/setup-gcloud@v2
         with:
-          project_id: aire-469506
+          project_id: ${{ env.PROJECT_ID }}
 
       - name: Configure Docker auth for Artifact Registry
-        run: gcloud auth configure-docker europe-west1-docker.pkg.dev --quiet
+        run: gcloud auth configure-docker ${{ env.AR_HOST }} --quiet
 
       - name: Clone app repo at requested ref
         env:
@@ -38,25 +72,42 @@ jobs:
         run: |
           set -euxo pipefail
           rm -rf app
-          git clone "https://${GH_PAT}@github.com/antoniomoneo/Social-Media-Planner-aml.git" app
+          git clone "https://${GH_PAT}@github.com/${APP_REPO}.git" app
           cd app
           git fetch origin --tags --prune --depth=100
-          git checkout --detach "${{ github.event.inputs.app_ref }}"
-          echo "APP_COMMIT=$(git rev-parse HEAD)" >> $GITHUB_ENV
-          echo "APP_SHORT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
-          cd -
+          git checkout --detach "${APP_REF}"
+          echo "APP_COMMIT=$(git rev-parse HEAD)" | tee -a $GITHUB_ENV
+          echo "APP_SHORT_SHA=$(git rev-parse --short HEAD)" | tee -a $GITHUB_ENV
+          SAFE_REF="${APP_REF//\//-}"
+          SAFE_REF="${SAFE_REF// /-}"
+          SAFE_REF="$(echo "$SAFE_REF" | cut -c1-60)"
+          echo "SAFE_REF=$SAFE_REF" | tee -a $GITHUB_ENV
 
       - name: Build & Push Docker image
         run: |
-          IMAGE="europe-west1-docker.pkg.dev/aire-469506/apps/aire-guardianes-app:${APP_SHORT_SHA}"
-          docker build -t "$IMAGE" ./app
-          docker push "$IMAGE"
-          echo "DEPLOY_IMAGE=$IMAGE" >> $GITHUB_ENV
+          set -euxo pipefail
+          IMAGE_BASE="${AR_HOST}/${PROJECT_ID}/${ARTIFACT_REPO}/${IMAGE_NAME}"
+          TAG1="${IMAGE_BASE}:${SAFE_REF}"
+          TAG2="${IMAGE_BASE}:${APP_SHORT_SHA}"
+          docker build -t "${TAG1}" -t "${TAG2}" ./app
+          docker push "${TAG1}"
+          docker push "${TAG2}"
+          echo "DEPLOY_IMAGE=${TAG2}" | tee -a $GITHUB_ENV
 
       - name: Deploy to Cloud Run
         run: |
-          gcloud run deploy aire-guardianes \
-            --image "$DEPLOY_IMAGE" \
-            --region europe-west1 \
+          set -euxo pipefail
+          gcloud run deploy "${SERVICE_NAME}" \
+            --image "${DEPLOY_IMAGE}" \
+            --region "${REGION}" \
             --platform managed \
-            --allow-unauthenticated
+            --allow-unauthenticated \
+            --labels "app_repo=${APP_REPO},app_ref=${APP_REF},commit=${APP_COMMIT}"
+
+      - name: Show deployed service URL
+        run: |
+          URL=$(gcloud run services describe "${SERVICE_NAME}" --region "${REGION}" --format='value(status.url)')
+          echo "Deployed URL: ${URL}"
+          echo "Deployed repo: ${APP_REPO}"
+          echo "Deployed ref : ${APP_REF}"
+          echo "Commit      : ${APP_COMMIT} (${APP_SHORT_SHA})"
