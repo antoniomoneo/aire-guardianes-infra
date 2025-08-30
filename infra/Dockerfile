@@ -2,28 +2,28 @@
 FROM node:20-alpine AS builder
 WORKDIR /build
 
-# Copia manifest(s). El comodín funciona si existe solo package.json.
+# Manifiestos de la app y deps para build
 COPY app/package*.json ./
+RUN npm ci || npm install --legacy-peer-deps
 
-# (Opcional) toolchain por si hay dependencias nativas
-# RUN apk add --no-cache python3 make g++
-
-# Instala deps: usa lock si existe; si no, instala con fallback de peer deps
-RUN if [ -f package-lock.json ]; then \
-      npm ci || npm install --legacy-peer-deps; \
-    else \
-      npm install --legacy-peer-deps; \
-    fi
-
-# Copia el resto del código y build
+# Código de la app y build
 COPY app/ .
-RUN npm run build
+RUN npm run build   # genera /build/dist
 
-# ---------- runtime ----------
+# ---------- runtime (server Express) ----------
 FROM node:20-alpine
 WORKDIR /app
+
+# Instalar deps del servidor (express) declaradas en infra/package.json
+COPY infra/package.json ./package.json
+RUN npm install --omit=dev --no-audit --no-fund
+# Verificación en build: debe imprimir "express ok"
+RUN node -e "require('express'); console.log('express ok')"
+
+# Copiar servidor y estáticos compilados
 COPY infra/server.js ./server.js
 COPY --from=builder /build/dist ./dist
+
 ENV NODE_ENV=production
 ENV PORT=8080
 EXPOSE 8080
