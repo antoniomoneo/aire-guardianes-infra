@@ -58,7 +58,7 @@ jobs:
       - name: Build & Push Docker image (Dockerfile en infra/)
         run: |
           set -euxo pipefail
-          IMAGE_BASE="${{ github.event.inputs.region }}-docker.pkg.dev/${{ github.event.inputs.project_id }}/apps/aire-guardianes-app"
+          IMAGE_BASE="${{ github.event.inputs.region }}-docker.pkg.dev/${{ github.event.inputs.project_id }}/aire-guardianes-app/aire-guardianes"
           TAG1="${IMAGE_BASE}:${{ github.event.inputs.app_ref }}"
           TAG2="${IMAGE_BASE}:${GITHUB_SHA::7}"
 
