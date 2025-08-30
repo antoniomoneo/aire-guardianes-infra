@@ -5,12 +5,12 @@ RUN npm ci || npm install --legacy-peer-deps
 COPY app/ .
 RUN npm run build
 
-# quitar <script type="importmap">...</script> del dist/index.html
-RUN awk 'BEGIN{del=0} /<script[[:space:]]+type="importmap">/{del=1} !del{print} /<\/script>/{if(del){del=0}}' dist/index.html > /tmp/idx && mv /tmp/idx dist/index.html
-# quitar la línea que referencia /index.css (si existe)
-RUN sed -i '/href="\/index\.css"/d' dist/index.html
+# --- Limpieza robusta del HTML generado (funciona 1 línea o multilínea) ---
+#   - elimina <script type="importmap">...</script>
+#   - elimina <link ... href="/index.css" ...>
+RUN node -e "const fs=require('fs');const p='dist/index.html';let s=fs.readFileSync(p,'utf8');s=s.replace(/<script\\s+type=[\"']importmap[\"'][^>]*>[\\s\\S]*?<\\/script>/i,'');s=s.replace(/<link[^>]*href=[\"']\\/index\\.css[\"'][^>]*>/i,'');fs.writeFileSync(p,s);"
 
-# si tienes un index.css en raíz del repo de la app, cópialo para evitar 404 (opcional)
+# Si existe un index.css en la raíz del repo app, lo copiamos a dist (opcional)
 RUN if [ -f index.css ]; then cp index.css dist/index.css; fi
 
 FROM node:20-alpine
