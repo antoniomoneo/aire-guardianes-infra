@@ -1,24 +1,7 @@
 import express from "express";
-import path from "path";
-import { fileURLToPath } from "url";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
 const app = express();
 const port = process.env.PORT || 8080;
-
-const distPath = path.join(__dirname, "dist");
-console.log("Serving dist from:", distPath);
-
-app.use(express.static(distPath, { index: false }));
-
-// health
-app.get("/healthz", (_req, res) => res.status(200).send("ok"));
-
-// catch-all SPA (Express 4 permite '*')
-app.get("*", (_req, res) => {
-  res.sendFile(path.join(distPath, "index.html"));
-});
-
+app.get("/healthz", (_req, res) => res.status(200).type("text/plain").send("ok"));
+app.get("/_ah/health", (_req, res) => res.status(200).type("text/plain").send("ok"));
+app.use((req, res) => res.status(200).type("text/plain").send(`ok ${req.method} ${req.path}`));
 app.listen(port, () => console.log(`Listening on :${port}`));
