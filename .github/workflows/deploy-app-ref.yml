@@ -77,4 +77,4 @@ jobs:
             --project "${{ github.event.inputs.project_id }}" \
             --platform managed \
             --allow-unauthenticated \
-            --labels "app_repo=${{ github.event.inputs.app_repo }},app_ref=${{ github.event.inputs.app_ref }},commit=${GITHUB_SHA}"
+            --labels "branch=${{ github.event.inputs.app_ref }},commit=${GITHUB_SHA::7}"
