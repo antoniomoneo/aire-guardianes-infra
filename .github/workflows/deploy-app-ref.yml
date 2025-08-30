@@ -62,7 +62,6 @@ jobs:
           TAG1="${IMAGE_BASE}:${{ github.event.inputs.app_ref }}"
           TAG2="${IMAGE_BASE}:${GITHUB_SHA::7}"
 
-          # Dockerfile en infra/, contexto en la raíz del repo (.)
           docker build -f infra/Dockerfile -t "${TAG1}" -t "${TAG2}" .
 
           docker push "${TAG1}"
