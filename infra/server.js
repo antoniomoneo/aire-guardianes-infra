@@ -13,9 +13,11 @@ console.log("Serving dist from:", distPath);
 
 app.use(express.static(distPath, { index: false }));
 
+// health
 app.get("/healthz", (_req, res) => res.status(200).send("ok"));
 
-app.get(/.*/, (_req, res) => {
+// catch-all SPA (Express 4 permite '*')
+app.get("*", (_req, res) => {
   res.sendFile(path.join(distPath, "index.html"));
 });
 
