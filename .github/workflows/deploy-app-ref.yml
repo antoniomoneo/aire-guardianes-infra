@@ -51,6 +51,10 @@ jobs:
         with:
           project_id: ${{ github.event.inputs.project_id }}
 
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker us-west1-docker.pkg.dev --quiet
+
       - name: Build & Push Docker image (Dockerfile en infra/)
         run: |
           set -euxo pipefail
