@@ -39,6 +39,11 @@ jobs:
           cd app
           git fetch origin ${{ github.event.inputs.app_ref }} --depth=1 || true
           git checkout -q ${{ github.event.inputs.app_ref }} || true
+          # Captura el commit de la APP (no el de infra)
+          APP_COMMIT=$(git rev-parse HEAD)
+          APP_SHORT_SHA=${APP_COMMIT:0:7}
+          echo "APP_COMMIT=$APP_COMMIT" | tee -a $GITHUB_ENV
+          echo "APP_SHORT_SHA=$APP_SHORT_SHA" | tee -a $GITHUB_ENV
           cd -
 
       - name: Authenticate to Google Cloud
@@ -59,13 +64,15 @@ jobs:
         run: |
           set -euxo pipefail
           IMAGE_BASE="${{ github.event.inputs.region }}-docker.pkg.dev/${{ github.event.inputs.project_id }}/aire-guardianes-app/aire-guardianes"
+          # Etiquetas: por ref (main/stable/sha/tag) y por commit REAL de la APP
           TAG1="${IMAGE_BASE}:${{ github.event.inputs.app_ref }}"
-          TAG2="${IMAGE_BASE}:${GITHUB_SHA::7}"
+          TAG2="${IMAGE_BASE}:${APP_SHORT_SHA}"
 
           docker build -f infra/Dockerfile -t "${TAG1}" -t "${TAG2}" .
 
           docker push "${TAG1}"
           docker push "${TAG2}"
+          # Desplegamos SIEMPRE la imagen por commit de la APP
           echo "DEPLOY_IMAGE=${TAG2}" | tee -a $GITHUB_ENV
 
       - name: Deploy to Cloud Run
@@ -77,4 +84,4 @@ jobs:
             --project "${{ github.event.inputs.project_id }}" \
             --platform managed \
             --allow-unauthenticated \
-            --labels "branch=${{ github.event.inputs.app_ref }},commit=${GITHUB_SHA::7}"
+            --labels "branch=${{ github.event.inputs.app_ref }},commit=${APP_SHORT_SHA}"
