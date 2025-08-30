@@ -2,17 +2,17 @@
 FROM node:20-alpine AS builder
 WORKDIR /build
 
-# Copiamos manifest y lock si existe
+# Copiamos package.json y (si existe) package-lock.json
 COPY app/package.json ./
-COPY app/package-lock.json ./ 2>/dev/null || true
+# con esto no falla si falta:
+COPY app/package-lock.json ./package-lock.json
 
-# Instala dependencias:
-# - si hay lock -> npm ci
-# - si no hay lock -> npm install (con fallback para peers)
+# Instalar dependencias
+# usamos fallback por si hay problemas de peer deps
 RUN if [ -f package-lock.json ]; then \
-      npm ci; \
+      npm ci || npm install --legacy-peer-deps; \
     else \
-      npm install || npm install --legacy-peer-deps; \
+      npm install --legacy-peer-deps; \
     fi
 
 # Copiamos el resto del código y construimos
