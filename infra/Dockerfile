@@ -1,36 +1,18 @@
-# ===== Build (Debian slim para evitar problemas de binarios) =====
-FROM node:20-bookworm-slim AS build
-WORKDIR /app
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 make g++ ca-certificates git \
- && rm -rf /var/lib/apt/lists/*
-
-# Manifests desde ./app (el workflow clona la app en ./app)
+# ---------- build (Vite) ----------
+FROM node:20-alpine AS builder
+WORKDIR /build
 COPY app/package*.json ./
-RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
-
-# Código de la app
+RUN npm ci
 COPY app/ .
+RUN npm run build   # genera /build/dist
 
-# Diagnóstico y build con log detallado
-RUN node -v && npm -v && ls -la && \
-    npm config set loglevel verbose && \
-    echo "== package.json ==" && cat package.json && \
-    (test -f vite.config.ts && { echo "== vite.config.ts =="; cat vite.config.ts; } || true) && \
-    npm run build
-
-# ===== Runtime =====
-FROM node:20-bookworm-slim AS runtime
+# ---------- runtime ----------
+FROM node:20-alpine
 WORKDIR /app
+COPY infra/server.js ./server.js
+COPY --from=builder /build/dist ./dist
+
 ENV NODE_ENV=production
-
-COPY app/package*.json ./
-RUN if [ -f package-lock.json ]; then npm ci --omit=dev; else npm install --omit=dev; fi
-
-# Servidor Express + estáticos ya construidos
-COPY app/server.js ./server.js
-COPY --from=build /app/dist ./dist
-
+ENV PORT=8080
 EXPOSE 8080
 CMD ["node", "server.js"]
