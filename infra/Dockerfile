@@ -2,20 +2,20 @@
 FROM node:20-alpine AS builder
 WORKDIR /build
 
-# Copiamos package.json y (si existe) package-lock.json
-COPY app/package.json ./
-# con esto no falla si falta:
-COPY app/package-lock.json ./package-lock.json
+# Copia manifest(s). El comodín funciona si existe solo package.json.
+COPY app/package*.json ./
 
-# Instalar dependencias
-# usamos fallback por si hay problemas de peer deps
+# (Opcional) toolchain por si hay dependencias nativas
+# RUN apk add --no-cache python3 make g++
+
+# Instala deps: usa lock si existe; si no, instala con fallback de peer deps
 RUN if [ -f package-lock.json ]; then \
       npm ci || npm install --legacy-peer-deps; \
     else \
       npm install --legacy-peer-deps; \
     fi
 
-# Copiamos el resto del código y construimos
+# Copia el resto del código y build
 COPY app/ .
 RUN npm run build
 
