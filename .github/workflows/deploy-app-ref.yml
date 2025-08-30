@@ -4,54 +4,42 @@ on:
   workflow_dispatch:
     inputs:
       app_repo:
-        description: "Repositorio de la app (owner/repo)"
+        description: 'Repo de la app'
         required: true
-        default: "antoniomoneo/Social-Media-Planner-aml"
       app_ref:
-        description: "Ref de la app a desplegar (tag/rama/SHA)"
+        description: 'Ref (rama, tag, commit)'
         required: true
-        default: "main"
-      project_id:
-        description: "GCP Project ID"
-        required: true
-        default: "aire-469506"
-      region:
-        description: "Región de Cloud Run"
-        required: true
-        default: "us-west1"
       service_name:
-        description: "Servicio de Cloud Run"
+        description: 'Servicio Cloud Run destino'
         required: true
-        default: "aire-guardianes"
-      artifact_repo:
-        description: "Artifact Registry repo (Docker)"
+      region:
+        description: 'Región'
         required: true
-        default: "apps"
-      image_name:
-        description: "Nombre de la imagen"
+      project_id:
+        description: 'ID de proyecto'
         required: true
-        default: "aire-guardianes-app"
 
 jobs:
-  deploy:
+  build-deploy:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write
-
-    env:
-      APP_REPO: ${{ inputs.app_repo }}
-      APP_REF: ${{ inputs.app_ref }}
-      PROJECT_ID: ${{ inputs.project_id }}
-      REGION: ${{ inputs.region }}
-      SERVICE_NAME: ${{ inputs.service_name }}
-      ARTIFACT_REPO: ${{ inputs.artifact_repo }}
-      IMAGE_NAME: ${{ inputs.image_name }}
-      AR_HOST: ${{ inputs.region }}-docker.pkg.dev
 
     steps:
-      - name: Checkout infra repo
+      - name: Checkout infra repo (this repo)
         uses: actions/checkout@v4
+
+      - name: Clone app repo via PAT
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          set -euxo pipefail
+          rm -rf app
+          git clone --depth=1 "https://${GH_PAT}@github.com/${{ github.event.inputs.app_repo }}.git" app
+          cd app
+          git fetch origin ${{ github.event.inputs.app_ref }} --depth=1 || true
+          git checkout -q ${{ github.event.inputs.app_ref }} || true
+          cd -
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -61,35 +49,18 @@ jobs:
       - name: Setup gcloud
         uses: google-github-actions/setup-gcloud@v2
         with:
-          project_id: ${{ env.PROJECT_ID }}
+          project_id: ${{ github.event.inputs.project_id }}
 
-      - name: Configure Docker auth for Artifact Registry
-        run: gcloud auth configure-docker ${{ env.AR_HOST }} --quiet
-
-      - name: Clone app repo at requested ref
-        env:
-          GH_PAT: ${{ secrets.GH_PAT }}
+      - name: Build & Push Docker image (Dockerfile en infra/)
         run: |
           set -euxo pipefail
-          rm -rf app
-          git clone "https://${GH_PAT}@github.com/${APP_REPO}.git" app
-          cd app
-          git fetch origin --tags --prune --depth=100
-          git checkout --detach "${APP_REF}"
-          echo "APP_COMMIT=$(git rev-parse HEAD)" | tee -a $GITHUB_ENV
-          echo "APP_SHORT_SHA=$(git rev-parse --short HEAD)" | tee -a $GITHUB_ENV
-          SAFE_REF="${APP_REF//\//-}"
-          SAFE_REF="${SAFE_REF// /-}"
-          SAFE_REF="$(echo "$SAFE_REF" | cut -c1-60)"
-          echo "SAFE_REF=$SAFE_REF" | tee -a $GITHUB_ENV
+          IMAGE_BASE="${{ github.event.inputs.region }}-docker.pkg.dev/${{ github.event.inputs.project_id }}/apps/aire-guardianes-app"
+          TAG1="${IMAGE_BASE}:${{ github.event.inputs.app_ref }}"
+          TAG2="${IMAGE_BASE}:${GITHUB_SHA::7}"
 
-      - name: Build & Push Docker image
-        run: |
-          set -euxo pipefail
-          IMAGE_BASE="${AR_HOST}/${PROJECT_ID}/${ARTIFACT_REPO}/${IMAGE_NAME}"
-          TAG1="${IMAGE_BASE}:${SAFE_REF}"
-          TAG2="${IMAGE_BASE}:${APP_SHORT_SHA}"
-          docker build -t "${TAG1}" -t "${TAG2}" ./app
+          # Dockerfile en infra/, contexto en la raíz del repo (.)
+          docker build -f infra/Dockerfile -t "${TAG1}" -t "${TAG2}" .
+
           docker push "${TAG1}"
           docker push "${TAG2}"
           echo "DEPLOY_IMAGE=${TAG2}" | tee -a $GITHUB_ENV
@@ -97,17 +68,10 @@ jobs:
       - name: Deploy to Cloud Run
         run: |
           set -euxo pipefail
-          gcloud run deploy "${SERVICE_NAME}" \
+          gcloud run deploy "${{ github.event.inputs.service_name }}" \
             --image "${DEPLOY_IMAGE}" \
-            --region "${REGION}" \
+            --region "${{ github.event.inputs.region }}" \
+            --project "${{ github.event.inputs.project_id }}" \
             --platform managed \
             --allow-unauthenticated \
-            --labels "app_repo=${APP_REPO},app_ref=${APP_REF},commit=${APP_COMMIT}"
-
-      - name: Show deployed service URL
-        run: |
-          URL=$(gcloud run services describe "${SERVICE_NAME}" --region "${REGION}" --format='value(status.url)')
-          echo "Deployed URL: ${URL}"
-          echo "Deployed repo: ${APP_REPO}"
-          echo "Deployed ref : ${APP_REF}"
-          echo "Commit      : ${APP_COMMIT} (${APP_SHORT_SHA})"
+            --labels "app_repo=${{ github.event.inputs.app_repo }},app_ref=${{ github.event.inputs.app_ref }},commit=${GITHUB_SHA}"
