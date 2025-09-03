@@ -25,5 +25,5 @@ steps:
         "--platform", "managed",
         "--allow-unauthenticated",
         "--service-account", "${_RUNTIME_SA}",
-        "--set-secrets", "GEMINI_API_KEY=GEMINI_API_KEY:latest"
+        "--set-secrets", "API_KEY=API_KEY:latest,GITHUB_TOKEN=GITHUB_TOKEN:latest"
       ]
