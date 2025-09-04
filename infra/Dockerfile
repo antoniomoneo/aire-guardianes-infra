@@ -7,6 +7,8 @@ COPY app/package*.json ./
 RUN npm ci --include=dev || npm install --include=dev --legacy-peer-deps
 # Copy application source
 COPY app/ .
+# Pre-build: remove importmap and stray index.css link from index.html to avoid bundling external/Node modules
+RUN node -e "const fs=require('fs');let s=fs.readFileSync('index.html','utf8');s=s.replace(/<script\\s+type=[\"']importmap[\"'][^>]*>[\\s\\S]*?<\\/script>\\s*/i,'');s=s.replace(/<link[^>]*href=[\"']\\/index\\.css[\"'][^>]*>\\s*/i,'');fs.writeFileSync('index.html',s);"
 # Build the app; keep verbose logs for debugging build issues
 ENV NODE_OPTIONS=--openssl-legacy-provider
 RUN npm run build --loglevel verbose || npm run build
