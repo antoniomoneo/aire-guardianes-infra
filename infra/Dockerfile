@@ -11,7 +11,29 @@ COPY app/ .
 RUN node -e "const fs=require('fs');let s=fs.readFileSync('index.html','utf8');s=s.replace(/<script\\s+type=[\"']importmap[\"'][^>]*>[\\s\\S]*?<\\/script>\\s*/i,'');s=s.replace(/<link[^>]*href=[\"']\\/index\\.css[\"'][^>]*>\\s*/i,'');fs.writeFileSync('index.html',s);"
 # Build the app; keep verbose logs for debugging build issues
 ENV NODE_OPTIONS=--openssl-legacy-provider
-RUN npm run build --loglevel verbose || npm run build
+# Create a dedicated build config to externalize Node-only deps if encountered
+RUN node -e "const fs=require('fs');fs.writeFileSync('vite.build.config.ts',`
+import { defineConfig, loadEnv } from 'vite';
+import react from '@vitejs/plugin-react';
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, '.', '');
+  return {
+    plugins: [react()],
+    publicDir: 'media',
+    define: {
+      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
+      'process.env.GITHUB_TOKEN': JSON.stringify(env.GITHUB_TOKEN),
+    },
+    server: { port: 5173 },
+    build: {
+      rollupOptions: {
+        external: ['express','path','node:path','url','node:url','vite','@vitejs/plugin-react']
+      }
+    }
+  }
+});
+`);"
+RUN npm run build --loglevel verbose -- --config vite.build.config.ts || npm run build -- --config vite.build.config.ts
 
 # Normaliza salida: si el proyecto genera build/, muévelo a dist/
 RUN if [ -d build ]; then mv build dist; fi
