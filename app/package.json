@@ -1,0 +1,12 @@
+{
+  "name": "aire-guardianes-app",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "mkdir -p dist && cp index.html dist/index.html"
+  },
+  "dependencies": {
+    "uuid": "9.0.1"
+  }
+}

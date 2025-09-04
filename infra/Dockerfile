@@ -2,7 +2,7 @@
 FROM node:20 AS builder
 WORKDIR /app
 COPY app/package*.json ./
-RUN npm ci --include=dev || npm install --include=dev --legacy-peer-deps
+RUN npm install --include=dev --legacy-peer-deps
 COPY app/ .
 ENV NODE_OPTIONS=--openssl-legacy-provider
 # Strip dev-only importmap and stray index.css link to avoid Vite/Rollup unresolved externals
