@@ -1,9 +1,10 @@
 FROM node:20-alpine AS builder
 WORKDIR /build
-ENV NODE_ENV=production
+# Ensure devDependencies are installed for build tools like Vite
+ENV NPM_CONFIG_PRODUCTION=false
 # Install dependencies using only manifests for better caching
 COPY app/package*.json ./
-RUN npm ci || npm install --legacy-peer-deps
+RUN npm ci --include=dev || npm install --include=dev --legacy-peer-deps
 # Copy application source
 COPY app/ .
 # Build the app; keep verbose logs for debugging build issues
