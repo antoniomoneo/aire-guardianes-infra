@@ -10,11 +10,13 @@ RUN node -e "const fs=require('fs');let s=fs.readFileSync('index.html','utf8');s
 RUN npm run build --loglevel verbose || (echo '--- Vite build failed; dumping npm debug logs ---' && ls -la /root/.npm/_logs || true && find /root/.npm/_logs -type f -name "*-debug-*.log" -exec sh -lc 'echo ==== {} ====; sed -n '"'1,200p'"' {}' \; ; exit 1)
 
 # Stage 2: serve static files
-FROM node:20
+FROM node:20-slim
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=8080
+COPY infra/package.json ./package.json
+RUN npm install --omit=dev --no-audit --no-fund
 COPY --from=builder /app/dist ./dist
-RUN npm install -g serve
+COPY infra/server.mjs ./server.mjs
 EXPOSE 8080
-CMD ["sh","-lc","set -eux; ls -la dist || true; echo PORT=$PORT; which serve; serve -s dist -l tcp://0.0.0.0:${PORT}"]
+CMD ["node","server.mjs"]
