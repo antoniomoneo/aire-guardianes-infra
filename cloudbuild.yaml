@@ -1,4 +1,8 @@
 steps:
+  # Fetch application source into ./app so the Docker build has the code
+  - name: "gcr.io/cloud-builders/git"
+    args: ["clone", "--depth=1", "https://github.com/antoniomoneo/AIRE---Guardianes-del-Aire.git", "app"]
+
   - name: "gcr.io/cloud-builders/docker"
     args:
       [
@@ -25,5 +29,5 @@ steps:
         "--platform", "managed",
         "--allow-unauthenticated",
         "--service-account", "${_RUNTIME_SA}",
-        "--set-secrets", "API_KEY=API_KEY:latest,GITHUB_TOKEN=GITHUB_TOKEN:latest"
+        "--set-secrets", "API_KEY=API_KEY:latest,GEMINI_API_KEY=API_KEY:latest,GITHUB_TOKEN=GITHUB_TOKEN:latest"
       ]

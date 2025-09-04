@@ -1,0 +1,18 @@
+# General
+.git
+.DS_Store
+
+# Node
+node_modules
+**/node_modules
+npm-debug.log*
+yarn-error.log*
+
+# Build outputs
+dist
+build
+
+# App repo caches (if any)
+app/node_modules
+app/dist
+app/build
