@@ -5,6 +5,8 @@ COPY app/package*.json ./
 RUN npm ci --include=dev || npm install --include=dev --legacy-peer-deps
 COPY app/ .
 ENV NODE_OPTIONS=--openssl-legacy-provider
+# Strip dev-only importmap and stray index.css link to avoid Vite/Rollup unresolved externals
+RUN node -e "const fs=require('fs');let s=fs.readFileSync('index.html','utf8');s=s.replace(/<script\\s+type=[\"']importmap[\"'][^>]*>[\\s\\S]*?<\\/script>\\s*/i,'');s=s.replace(/<link[^>]*href=[\"']\\/index\\.css[\"'][^>]*>\\s*/i,'');fs.writeFileSync('index.html',s);"
 RUN npm run build --loglevel verbose || npm run build
 
 # Stage 2: serve static files
