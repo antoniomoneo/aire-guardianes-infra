@@ -46,7 +46,17 @@ RUN node -e "require('express'); console.log('express ok')"
 # Use the app's own server.js for a single runtime entrypoint
 COPY --from=builder /build/server.js ./server.js
 COPY --from=builder /build/dist ./dist
+# Lightweight ESM entrypoint to log boot details and start the server
+RUN cat > run.mjs <<'EOF'
+import fs from 'node:fs';
+const port = process.env.PORT || '8080';
+console.log(`[boot] PORT=${port}`);
+try { console.log('[boot] cwd:', process.cwd()); } catch {}
+try { console.log('[boot] files:', fs.readdirSync('.')); } catch {}
+try { console.log('[boot] dist exists:', fs.existsSync('dist'), 'index:', fs.existsSync('dist/index.html')); } catch {}
+import('./server.js').catch((e) => { console.error('[boot] failed to start server:', e); process.exit(1); });
+EOF
 ENV NODE_ENV=production
 ENV PORT=8080
 EXPOSE 8080
-CMD ["node", "server.js"]
+CMD ["node", "run.mjs"]
