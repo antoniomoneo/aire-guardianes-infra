@@ -31,6 +31,36 @@ app.get('/api/proxy', async (req, res) => {
   }
 });
 
+// Simple chat completion proxy to Gemini
+app.post('/api/chat', async (req, res) => {
+  try {
+    const message = req.body?.message;
+    if (!message || typeof message !== 'string') {
+      return res.status(400).json({ error: 'message required' });
+    }
+    const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: 'missing API key' });
+    }
+
+    const r = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: message }] }],
+        }),
+      },
+    );
+    const data = await r.json();
+    res.status(r.status).json(data);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: String(e) });
+  }
+});
+
 // Static assets from Vite build
 const distDir = path.join(__dirname, 'dist');
 app.use('/assets', express.static(path.join(distDir, 'assets'), { immutable: true, maxAge: '1y' }));
