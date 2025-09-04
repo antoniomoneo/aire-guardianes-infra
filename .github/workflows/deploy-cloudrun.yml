@@ -20,6 +20,8 @@ env:
   IMAGE_NAME: aire-guardianes
   RUNTIME_SA: aire-deployer@aire-470107.iam.gserviceaccount.com
   APP_REPO: antoniomoneo/AIRE---Guardianes-del-Aire
+  # Secrets live in this project (from error logs: projects/95857876175)
+  SECRET_PROJECT_ID: "95857876175"
 
 jobs:
   build-deploy:
@@ -102,8 +104,7 @@ jobs:
           REPO:       ${{ env.AR_REPO }}
           IMAGE_NAME: ${{ env.IMAGE_NAME }}
           TAG:        ${{ steps.meta.outputs.TAG }}
-          API_KEY:    ${{ secrets.API_KEY }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SECRET_PROJECT_ID: ${{ env.SECRET_PROJECT_ID }}
         run: |
           set -euxo pipefail
           IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${IMAGE_NAME}:${TAG}"
@@ -118,7 +119,7 @@ jobs:
             --timeout 600 \
             --cpu 1 \
             --memory 512Mi \
-            --set-env-vars "API_KEY=${API_KEY},GEMINI_API_KEY=${API_KEY},GITHUB_TOKEN=${GITHUB_TOKEN}"
+            --set-secrets "API_KEY=projects/${SECRET_PROJECT_ID}/secrets/API_KEY:latest,GEMINI_API_KEY=projects/${SECRET_PROJECT_ID}/secrets/API_KEY:latest,GITHUB_TOKEN=projects/${SECRET_PROJECT_ID}/secrets/GITHUB_TOKEN:latest"
 
       - name: Show Service URL
         run: |
