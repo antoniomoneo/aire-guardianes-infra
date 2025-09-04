@@ -11,16 +11,10 @@ COPY app/ .
 ENV NODE_OPTIONS=--openssl-legacy-provider
 RUN npm run build --loglevel verbose || npm run build
 
-# --- Limpieza robusta del HTML generado (funciona 1 línea o multilínea) ---
-#   - elimina <script type="importmap">...</script>
-#   - elimina <link ... href="/index.css" ...>
-RUN if [ -d build ]; then mv build dist; fi \
- && node -e "const fs=require('fs');const p='dist/index.html';let s=fs.readFileSync(p,'utf8');s=s.replace(/<script\\s+type=[\"']importmap[\"'][^>]*>[\\s\\S]*?<\\/script>/i,'');s=s.replace(/<link[^>]*href=[\"']\\/index\\.css[\"'][^>]*>/i,'');fs.writeFileSync(p,s);" || true
+# Normaliza salida: si el proyecto genera build/, muévelo a dist/
+RUN if [ -d build ]; then mv build dist; fi
 
-# Si existe un index.css en la raíz del repo app, lo copiamos a dist (opcional)
-RUN if [ -f index.css ]; then cp index.css dist/index.css; fi
-
-# Ensure a unified output directory exists
+# Verificación mínima del output
 RUN if [ -d dist ]; then echo "dist ready"; else echo "No dist or build output found"; ls -la; exit 1; fi
 RUN ls -la dist || true
 
