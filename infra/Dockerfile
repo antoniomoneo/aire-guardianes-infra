@@ -46,7 +46,7 @@ RUN if [ -d build ]; then mv build dist; fi
 RUN if [ -d dist ]; then echo "dist ready"; else echo "No dist or build output found"; ls -la; exit 1; fi
 RUN ls -la dist || true
 
-FROM node:20-alpine
+FROM node:20-slim
 WORKDIR /app
 COPY infra/package.json ./package.json
 RUN npm install --omit=dev --no-audit --no-fund

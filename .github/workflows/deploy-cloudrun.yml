@@ -112,7 +112,11 @@ jobs:
             --service-account "${RUNTIME_SA}" \
             --allow-unauthenticated \
             --ingress all \
-            --set-secrets "GEMINI_API_KEY=GEMINI_API_KEY:latest"
+            --port 8080 \
+            --timeout 600 \
+            --cpu 1 \
+            --memory 512Mi \
+            --set-secrets "API_KEY=API_KEY:latest,GEMINI_API_KEY=API_KEY:latest,GITHUB_TOKEN=GITHUB_TOKEN:latest"
 
       - name: Show Service URL
         run: |
