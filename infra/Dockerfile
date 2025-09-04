@@ -11,8 +11,8 @@ COPY app/ .
 RUN node -e "const fs=require('fs');let s=fs.readFileSync('index.html','utf8');s=s.replace(/<script\\s+type=[\"']importmap[\"'][^>]*>[\\s\\S]*?<\\/script>\\s*/i,'');s=s.replace(/<link[^>]*href=[\"']\\/index\\.css[\"'][^>]*>\\s*/i,'');fs.writeFileSync('index.html',s);"
 # Build the app; keep verbose logs for debugging build issues
 ENV NODE_OPTIONS=--openssl-legacy-provider
-# Create a dedicated build config to externalize Node-only deps if encountered
-RUN node -e "const fs=require('fs');fs.writeFileSync('vite.build.config.ts',`
+# Create a dedicated build config to externalize Node-only deps if encountered (use heredoc to avoid backtick parsing)
+RUN cat > vite.build.config.ts <<'EOF'
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 export default defineConfig(({ mode }) => {
@@ -36,7 +36,7 @@ export default defineConfig(({ mode }) => {
     }
   }
 });
-`);"
+EOF
 RUN npm run build --loglevel verbose -- --config vite.build.config.ts || npm run build -- --config vite.build.config.ts
 
 # Normaliza salida: si el proyecto genera build/, muévelo a dist/
