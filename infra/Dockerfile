@@ -27,7 +27,11 @@ export default defineConfig(({ mode }) => {
     server: { port: 5173 },
     build: {
       rollupOptions: {
-        external: ['express','path','node:path','url','node:url','vite','@vitejs/plugin-react']
+        external: ['express','path','node:path','url','node:url','vite','@vitejs/plugin-react'],
+        onwarn(warning, defaultHandler) {
+          if (warning.code === 'UNRESOLVED_IMPORT') return; // ignore unresolved imports (externalized)
+          defaultHandler(warning);
+        }
       }
     }
   }
