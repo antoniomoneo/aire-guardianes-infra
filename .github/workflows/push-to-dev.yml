@@ -1,24 +1,24 @@
-name: Push to Production — sync stable and deploy
+name: Push to Dev — deploy aire-guardianes-dev
 
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: "Versión (p.ej. v2025.08.28-1). Si se omite, se usa el SHA."
+      ref:
+        description: "Rama/tag/commit de la app a desplegar (por defecto: main)"
         required: false
         type: string
 
 env:
   PROJECT_ID: aire-470107
   REGION: us-west1
-  SERVICE: aire-guardianes
+  SERVICE_DEV: aire-guardianes-dev
   AR_REPO: aire-guardianes-app
   IMAGE_NAME: aire-guardianes
   RUNTIME_SA: aire-deployer@aire-470107.iam.gserviceaccount.com
   APP_REPO: antoniomoneo/AIRE---Guardianes-del-Aire
 
 jobs:
-  build-deploy:
+  push-to-dev:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -27,34 +27,20 @@ jobs:
       - name: Checkout infra repo (this repo)
         uses: actions/checkout@v4
 
-      - name: Clone app repo via PAT (main)
+      - name: Clone app repo via PAT (ref for dev)
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
           APP_REPO: ${{ env.APP_REPO }}
+          REF: ${{ inputs.ref }}
         run: |
           set -euxo pipefail
+          REF_VALUE="${REF:-main}"
+          echo "Using app ref: ${REF_VALUE}"
           rm -rf app
           git clone --depth=1 "https://${GH_PAT}@github.com/${APP_REPO}.git" app
           cd app
-          git fetch origin main --depth=1 || true
-          git checkout -q main || true
-
-      - name: Sync main → stable in app repo
-        env:
-          GH_PAT: ${{ secrets.GH_PAT }}
-        run: |
-          set -euxo pipefail
-          cd app
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # Ensure we have latest main
-          git fetch origin main --depth=1 || true
-          git checkout -q main
-          # Fast-forward local stable to main and push
-          git branch -f stable main
-          git push origin stable:stable
-          # Use stable for building
-          git checkout -q stable
+          git fetch origin "${REF_VALUE}" --depth=1 || true
+          git checkout -q "${REF_VALUE}" || true
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -69,56 +55,43 @@ jobs:
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev -q
 
-      - name: Compute tags
+      - name: Compute dev image tags
         id: meta
         shell: bash
         run: |
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            TAG="${{ github.event.inputs.version }}"
-          elif [[ "${GITHUB_REF:-}" == refs/tags/* ]]; then
-            TAG="${GITHUB_REF#refs/tags/}"
-          else
-            TAG="${GITHUB_SHA}"
-          fi
-          echo "TAG=$TAG" >> "$GITHUB_OUTPUT"
-      
-      - name: 'Build and Push image (doble tag SHA + version)'
+          cd app
+          APP_SHA=$(git rev-parse HEAD)
+          APP_SHORT=${APP_SHA:0:7}
+          echo "APP_SHA=$APP_SHA" >> "$GITHUB_OUTPUT"
+          echo "APP_SHORT=$APP_SHORT" >> "$GITHUB_OUTPUT"
+
+      - name: Build and Push image for dev
         env:
           PROJECT_ID: ${{ env.PROJECT_ID }}
           REGION:     ${{ env.REGION }}
           REPO:       ${{ env.AR_REPO }}
           IMAGE_NAME: ${{ env.IMAGE_NAME }}
-          TAG:        ${{ steps.meta.outputs.TAG }}
+          APP_SHORT:  ${{ steps.meta.outputs.APP_SHORT }}
         run: |
           set -euxo pipefail
           export DOCKER_BUILDKIT=1
           IMAGE_BASE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${IMAGE_NAME}"
-          SHA_TAG="${GITHUB_SHA}"
-          TAG_NAME="${TAG}"
+          docker build -f infra/Dockerfile -t "${IMAGE_BASE}:dev-${APP_SHORT}" .
+          docker push "${IMAGE_BASE}:dev-${APP_SHORT}"
+          echo "TAG=dev-${APP_SHORT}" >> $GITHUB_ENV
 
-          # Build (sin --progress y sin --no-cache)
-          docker build -f infra/Dockerfile -t "${IMAGE_BASE}:${SHA_TAG}" .
-
-          # Push por SHA
-          docker push "${IMAGE_BASE}:${SHA_TAG}"
-
-          # Tag legible (versión) y push
-          docker tag "${IMAGE_BASE}:${SHA_TAG}" "${IMAGE_BASE}:${TAG_NAME}"
-          docker push "${IMAGE_BASE}:${TAG_NAME}"
-
-      - name: Deploy to Cloud Run
+      - name: Deploy to Cloud Run (dev)
         env:
           PROJECT_ID: ${{ env.PROJECT_ID }}
           REGION:     ${{ env.REGION }}
-          SERVICE:    ${{ env.SERVICE }}
+          SERVICE:    ${{ env.SERVICE_DEV }}
           RUNTIME_SA: ${{ env.RUNTIME_SA }}
           REPO:       ${{ env.AR_REPO }}
           IMAGE_NAME: ${{ env.IMAGE_NAME }}
-          TAG:        ${{ steps.meta.outputs.TAG }}
+          TAG:        ${{ env.TAG }}
         run: |
           set -euxo pipefail
           IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${IMAGE_NAME}:${TAG}"
-
           gcloud run deploy "${SERVICE}" \
             --image "${IMAGE}" \
             --region "${REGION}" \
@@ -129,10 +102,12 @@ jobs:
             --timeout 600 \
             --cpu 1 \
             --memory 512Mi \
+            --set-env-vars "NO_INDEX=1" \
             --set-secrets "GEMINI_API_KEY=GEMINI_API_KEY:latest,GITHUB_TOKEN=GITHUB_TOKEN:latest"
 
-      - name: Show Service URL
+      - name: Show Service URL (dev)
         run: |
-          gcloud run services describe ${{ env.SERVICE }} \
+          gcloud run services describe ${{ env.SERVICE_DEV }} \
             --region ${{ env.REGION }} \
             --format='value(status.url)'
+

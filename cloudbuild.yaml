@@ -1,7 +1,28 @@
 steps:
+  # Ensure a clean app directory before cloning
+  - name: "gcr.io/cloud-builders/gcloud"
+    entrypoint: bash
+    args: ["-lc", "rm -rf app || true"]
+
   # Fetch application source into ./app so the Docker build has the code
   - name: "gcr.io/cloud-builders/git"
     args: ["clone", "--depth=1", "https://github.com/antoniomoneo/AIRE---Guardianes-del-Aire.git", "app"]
+
+  # Optionally checkout a specific ref of the app (branch/tag/commit)
+  - name: "gcr.io/cloud-builders/git"
+    entrypoint: bash
+    args:
+      - -lc
+      - |
+        set -euxo pipefail
+        REF='${_APP_REF}'
+        if [ -n "$$REF" ]; then
+          git -C app fetch origin "$$REF" --depth=1
+          git -C app checkout -q FETCH_HEAD
+          echo "Checked out app ref: $$REF"
+        else
+          echo "Using default app ref (repo default branch)"
+        fi
 
   - name: "gcr.io/cloud-builders/docker"
     args:
@@ -29,5 +50,7 @@ steps:
         "--platform", "managed",
         "--allow-unauthenticated",
         "--service-account", "${_RUNTIME_SA}",
-        "--set-secrets", "API_KEY=API_KEY:latest,GEMINI_API_KEY=API_KEY:latest,GITHUB_TOKEN=GITHUB_TOKEN:latest"
+        "--set-secrets", "GEMINI_API_KEY=GEMINI_API_KEY:latest,GITHUB_TOKEN=GITHUB_TOKEN:latest"
       ]
+options:
+  logging: CLOUD_LOGGING_ONLY
