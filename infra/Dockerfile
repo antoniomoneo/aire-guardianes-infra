@@ -2,9 +2,7 @@
 FROM node:20 AS builder
 WORKDIR /app
 COPY app/ .
-# Normalize package.json in case of missing commas between adjacent properties
-RUN node -e 'const fs=require("fs");let s=fs.readFileSync("package.json","utf8");const b=s; s=s.replace(/("(?:(?:\\.|[^"\\])*)"\s*:\s*"(?:(?:\\.|[^"\\])*)")(\s*\r?\n\s*)"(?=[A-Za-z0-9_@\$])/g, "$1,$2\""); if(s!==b){console.log("Patched package.json: inserted missing commas between properties");} fs.writeFileSync("package.json",s);' \
- && npm install --include=dev --legacy-peer-deps
+RUN npm install --include=dev --legacy-peer-deps
 ENV NODE_OPTIONS=--openssl-legacy-provider
 # Strip dev-only importmap and stray index.css link to avoid Vite/Rollup unresolved externals
 RUN node -e "const fs=require('fs');let s=fs.readFileSync('index.html','utf8');s=s.replace(/<script\\s+type=[\"']importmap[\"'][^>]*>[\\s\\S]*?<\\/script>\\s*/i,'');s=s.replace(/<link[^>]*href=[\"']\\/index\\.css[\"'][^>]*>\\s*/i,'');fs.writeFileSync('index.html',s);"
