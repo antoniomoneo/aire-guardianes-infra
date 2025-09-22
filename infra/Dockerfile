@@ -2,9 +2,7 @@
 FROM node:20 AS builder
 WORKDIR /app
 COPY app/package*.json ./
-# Patch common JSON mistake in upstream app/package.json (missing comma after "tone")
-RUN node -e "const fs=require('fs');let s=fs.readFileSync('package.json','utf8');const before=s; s=s.replace(/(\\\"tone\\\"\\s*:\\s*\\\"[^\\\"]+\\\")\\s*\\n\\s*(\\\"uuid\\\")/,'$1,\\n    $2'); if(before!==s){console.log('Patched package.json: inserted missing comma after tone');} fs.writeFileSync('package.json',s);" \
- && npm install --include=dev --legacy-peer-deps
+RUN npm install --include=dev --legacy-peer-deps
 COPY app/ .
 ENV NODE_OPTIONS=--openssl-legacy-provider
 # Strip dev-only importmap and stray index.css link to avoid Vite/Rollup unresolved externals
